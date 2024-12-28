@@ -6,6 +6,12 @@
 #define CONFFILE            "../etc/log.conf"
 static const char* kFileOutputFileName = "file.log";
 
+void CloudLogCallback(char *str)
+{
+    //TODO 云端日志具体的处理过程，根据自己的需求实现
+    return;
+}
+
 int main(int argc, char* argv[])
 {
     remove(kFileOutputFileName);
@@ -13,7 +19,7 @@ int main(int argc, char* argv[])
     const char message[] = "message";
     int result;
 
-    logger_init("app_test", CONFFILE);
+    logger_init("app_test", CONFFILE, CloudLogCallback, true);
 
     /* and: auto flush on */
     logger_autoFlush(10);

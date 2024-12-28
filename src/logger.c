@@ -4,6 +4,7 @@
 #include <stdarg.h>
 #include <stdlib.h>
 #include <time.h>
+
 #if defined(_WIN32) || defined(_WIN64)
  #include <winsock2.h>
 #else
@@ -38,10 +39,13 @@ static struct {
     unsigned long long flushedTime;
 } s_flog;
 
+extern bool isEnableCloudLog;
+static double golb_time_zone = 0;
+static bool isEnableTimestamp = false;
 static char app_name[16] = {0};
 
 static volatile int s_logger;
-static volatile LogLevel s_logLevel = LogLevel_DEBUG;//LogLevel_INFO
+static volatile LogLevel s_logLevel = LogLevel_INFO;
 static volatile long s_flushInterval = 0; /* msec, 0 is auto flush off */
 static volatile int s_initialized = 0; /* false */
 #if defined(_WIN32) || defined(_WIN64)
@@ -49,6 +53,19 @@ static CRITICAL_SECTION s_mutex;
 #else
 static pthread_mutex_t s_mutex;
 #endif /* defined(_WIN32) || defined(_WIN64) */
+
+CloudLogCallbackFunc sendCloudLogCallback = NULL;
+
+static void cloudLogRegisterCallback(char *name, CloudLogCallbackFunc cb)
+{
+    sendCloudLogCallback = cb;
+    printf("[%s]Cloud log register success.\n", name);
+}
+
+void setLogTimestamp(double timezone)
+{
+    golb_time_zone = timezone;
+}
 
 static void init(void)
 {
@@ -346,28 +363,71 @@ static long vflog(FILE* fp, char* levelc, const char* timestamp, const char* app
     return totalsize;
 }
 
+static void cloudLog(char* levelc, const char* app_name,
+        const char* file, int line, const char* fmt, va_list arg)
+{
+    int size = vsnprintf(NULL, 0, fmt, arg);
+    if(size < 0 || size > 1024){
+        printf("Cloud log data is out of range.\n");
+        return;
+    }
+    char buffer[1024+256] = {0};
+    sprintf(buffer, "[%s][%s %s:%d] ", levelc, app_name, file, line);
+    int current_length = strlen(buffer);
+    vsnprintf(buffer + current_length, sizeof(buffer) - current_length, fmt, arg);
+    if(sendCloudLogCallback != NULL){
+        sendCloudLogCallback(buffer);
+    }
+    // printf("cloud log:%s\n", buffer);
+}
+
 void logger_log(LogLevel level, const char* file, int line, const char* fmt, ...)
 {
+    if (!logger_isEnabled(level)) {
+        return;
+    }
+
     struct timeval now;
     unsigned long long currentTime = 0; /* milliseconds */
     char levels[8] = {0};
     char timestamp[32] = {0};
     va_list carg, farg;
 
+    if(isEnableCloudLog){
+        if(sendCloudLogCallback == NULL){
+            printf("sendCloudLogCallback is null.\n");
+            return;
+        }
+
+        strcpy(levels, getLevelChar(level));
+        va_start(carg, fmt);
+        cloudLog(levels, logger_getAppName(), file, line, fmt, carg);
+        va_end(carg);
+        
+        return;
+    }
+
     if (s_logger == 0 || !s_initialized) {
         assert(0 && "logger is not initialized");
         return;
     }
 
-    if (!logger_isEnabled(level)) {
-        return;
-    }
+    if(isEnableTimestamp){
+        if(level > LogLevel_DEBUG){
+            gettimeofday(&now, NULL);
 
-    if(level > LogLevel_DEBUG){
-        gettimeofday(&now, NULL);
-        
-        currentTime = now.tv_sec * 1000 + now.tv_usec / 1000;
-        getTimestamp(&now, timestamp, sizeof(timestamp));
+            if(golb_time_zone >= 0) {
+                now.tv_sec  += (golb_time_zone* 60 * 60);
+            }
+            else {
+                now.tv_sec  += (golb_time_zone * 60 * 60);
+            }
+            
+            currentTime = now.tv_sec * 1000 + now.tv_usec / 1000;
+            getTimestamp(&now, timestamp, sizeof(timestamp));
+        }else{
+            sprintf(timestamp, "xx-xx-xx xx:xx:xx");
+        }
     }else{
         sprintf(timestamp, "xx-xx-xx xx:xx:xx");
     }
@@ -400,9 +460,30 @@ void logger_exitFileLogger()
     }
 }
 
-void logger_init(char *name, char *path_conf)
+void logger_init(char *name, char *path_conf, CloudLogCallbackFunc cb, bool _isEnableTimestamp)
 {
     logger_setAppName(name);
-    logger_configure(path_conf);
-    logger_initConsoleLogger(stdout);
+    int ret = logger_configure(path_conf);
+    if(ret == 0){//异常错误情况，默认初始化成云端print
+        printf("Configuration file error, initialize to print to cloud.\n");
+        isEnableCloudLog = true;
+        logger_initConsoleLogger(NULL);
+    }
+    cloudLogRegisterCallback(name, cb);
+    isEnableTimestamp = _isEnableTimestamp;
+}
+
+void cloud_protocol_parse(LogLevel logLevel, char *outputMode)
+{
+    logger_setLevel(logLevel);
+    s_flushInterval = 0;
+    s_clog.output = stdout;
+    s_logger = kConsoleLogger;
+    if(strcmp(outputMode, "cloud") == 0){
+        isEnableCloudLog = true;
+    }else if(strcmp(outputMode, "stdout") == 0){
+        isEnableCloudLog = false;
+    }else{
+        isEnableCloudLog = true;
+    }
 }

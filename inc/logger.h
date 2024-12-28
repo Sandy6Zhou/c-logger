@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdio.h>
 #include <string.h>
+#include <stdbool.h>
 
 #if defined(_WIN32) || defined(_WIN64)
  #define __FILENAME__ (strrchr(__FILE__, '\\') ? strrchr(__FILE__, '\\') + 1 : __FILE__)
@@ -29,6 +30,8 @@ typedef enum {
     LogLevel_ERROR,
     LogLevel_FATAL,
 } LogLevel;
+
+typedef void (*CloudLogCallbackFunc)(char *str);
 
 /**
  * Initialize the logger as a console logger.
@@ -110,7 +113,9 @@ void logger_flush(void);
  */
 void logger_log(LogLevel level, const char* file, int line, const char* fmt, ...);
 
-void logger_init(char *name, char *path_conf);
+void logger_init(char *name, char *path_conf, CloudLogCallbackFunc cb, bool _isEnableTimestamp);
+void setLogTimestamp(double timezone);
+void cloud_protocol_parse(LogLevel logLevel, char * outputMode);
 
 #ifdef __cplusplus
 } /* extern "C" */

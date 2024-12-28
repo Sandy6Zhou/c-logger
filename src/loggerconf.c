@@ -28,7 +28,7 @@ static struct {
 } s_flog;
 
 static int s_logger;
-
+bool isEnableCloudLog = false;   //云端log和终端log是互斥的，同时只能存在一种，配置文件默认是云端输出
 static void reset(void);
 static void removeComments(char* s);
 static void trim(char* s);
@@ -143,6 +143,9 @@ static void parseLine(char* line)
             s_clog.output = stdout;
         } else if (strcmp(val, "stderr") == 0) {
             s_clog.output = stderr;
+        } else if (strcmp(val, "cloud") == 0) {
+            isEnableCloudLog = true;
+            s_clog.output = NULL;
         } else {
             fprintf(stderr, "ERROR: loggerconf: Invalid logger.console.output: `%s`\n", val);
             s_clog.output = NULL;
